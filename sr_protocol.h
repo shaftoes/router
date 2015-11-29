@@ -152,6 +152,45 @@ struct sr_ethernet_hdr
 } __attribute__ ((packed)) ;
 typedef struct sr_ethernet_hdr sr_ethernet_hdr_t;
 
+/*
+ *  Structure of an tcp header
+ * */
+ struct sr_tcp_hdr
+ {
+	 uint16_t port_src;    /* source port number */
+	 uint16_t port_dst;    /* destination port number */
+	 uint32_t seq_num;     /* format of sequence number */
+	 uint32_t ack_num;     /* format of ACK number */
+	 uint8_t  tcp_len;		/* length of a tcp header*/
+
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+     unsigned int fin:1;
+     unsigned int syn:1;
+     unsigned int rst:1;
+     unsigned int psh:1;
+
+     unsigned int ack:1;
+     unsigned int urg:1;
+     unsigned int ece:1;
+     unsigned int cwr:1;
+#elif __BYTE_ORDER == __BIG_ENDIAN
+     unsigned int cwr:1;
+     unsigned int ece:1;
+     unsigned int urg:1;
+     unsigned int ack:1;
+
+     unsigned int psh:1;
+     unsigned int rst:1;
+     unsigned int syn:1;
+     unsigned int fin:1;
+#endif
+
+	 uint16_t window_size; /* window size */
+	 uint16_t tcp_sum;		/* checksum */
+	 uint16_t urgent_p;	/*urgent pointer*/
+ }__attribute__ ((packed)) ;
+ typedef struct sr_tcp_hdr sr_tcp_hdr_t;
+
 
 /* DEFINED IN ROUTER. */
 /* did not want to deal with casting the enum types every time so I definied my own */
