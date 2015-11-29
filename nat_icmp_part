@@ -82,7 +82,7 @@ if (nat_enabled){
                                 return;
                             }
                             if(icmp_hder->icmp_type == 8){ /*request,couldn't find mapping,so assume sth outside nat is pinging eth2*/ 
-                                send_icmp_echo(sr, ippacket, len); /*we just send an echo reply back*/
+                                handle_ip_icmp(sr, (uint8_t *) ippacket); /*we just send an echo reply back*/
                             }
                         }
                     } 

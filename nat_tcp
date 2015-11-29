@@ -1,0 +1,84 @@
+ /*------------------------check if it's a TCP packet---------------------------------------------------------------*/
+   else if (ippacket->ip_p == 6) {
+            fprintf(stderr, "TCP packet");
+
+            struct sr_tcp_hdr_t *tcp_hdr = packet + sizeof(sr_ip_hdr_t);
+
+            /*-------check if packet is received on NAT's internal interface----------------*/
+            if(iface->ip == eth1_addr){
+
+				/*------check if dest address is us------*/
+				if (find_interface(sr,ippacket->ip_dst)){
+				    send_icmp_t3t11(sr, (uint8_t *) ippacket, len, 3, 3);
+				}
+
+				/*-----if dest address is not us--------*/
+				else{
+					/*------Get the mapping associated with given internal (ip, port) pair----*/
+					struct sr_nat_mapping* nat_mapping = sr_nat_lookup_internal(&(sr->nat), ntohs(ippacket->ip_src), ntohs(tcppacket->port_src), nat_mapping_tcp);
+
+					/*-------if packet is a SYN--------*/
+					if( tcp_hdr->syn){
+						if (nat_mapping == NULL){
+							pthread_mutex_lock(&(nat->lock));
+
+							/*----add a new mapping-----*/
+							struct sr_nat_mapping_t * new_mapping = sr_nat_insert_mapping(&(sr->nat), ntohs(ippacket->ip_src), ntohs(tcppacket->port_src), nat_mapping_tcp);
+							new_mapping->ip_ext = sr_get_interface(sr, rt_lpm(sr,ippacket->ip_dst)->interface);
+							pthread_mutex_unlock(&(nat->lock));
+
+							/*------create a new connection and insert it to the list------*/
+							pthread_mutex_lock(&(nat->lock));
+							struct sr_nat_connection *tcp_con = sr_nat_lookup_con(new_mapping, new_mapping->ippacket->ip_dst);
+                            if (tcp_con == NULL) {
+                                tcp_con = sr_nat_insert_con(new_mapping, new_mapping->ippacket->ip_dst);
+                            }
+
+							pthread_mutex_unlock(&(nat->lock));
+						}
+						/*---- mapping is already here----------*/
+						else {
+							pthread_mutex_lock(&(nat->lock));
+                            struct sr_nat_connection *tcp_con = sr_nat_lookup_con(new_mapping, new_mapping->ippacket->ip_dst);
+                            if (tcp_con == NULL){
+                                tcp_con = sr_nat_insert_con(nat_mapping, ippacket->ip_dst);
+                            }
+                            else if (tcp_con->state == TIME_WAIT){
+                                
+                            }
+                            else if (tcp_con->state == INBOUND_SYN_RECEIVED){
+                                
+                            }
+							pthread_mutex_unlock(&(nat->lock));
+						}
+					}
+					else if (!tcp_hdr->syn && nat_mapping == NULL){
+                        
+					}
+					
+					
+					/*----if it's not a SYN and no mapping, drop it-------*/
+					else if (!(tcp_hdr->syn) && nat_mapping == NULL){
+						return;
+					}
+
+					/*-----if it's a FIN and mapping exists----*/
+					else if (tcp_hdr->fin && nat_mapping != NULL){
+						pthread_mutex_lock(&(nat->lock));
+
+						pthread_mutex_unlock(&(nat->lock));
+					}
+				}
+				/*-------handle outbound tcp packet----------*/
+				free(nat_mapping);
+			}
+
+			/*--------if packet is received on NAT's external interface-----------------*/
+			else  if (iface->ip == eth2_addr){
+
+
+				}
+*/
+    }
+
+

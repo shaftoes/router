@@ -301,7 +301,17 @@ sr_nat_mapping_t *sr_nat_insert_mapping(struct sr_nat *nat,
    Returns a copy to the connection
    */
 struct sr_nat_connection *sr_nat_lookup_con(struct sr_nat_mapping *mapping, uint32_t ip_con){
+   struct sr_nat_connection *curr_conn = mapping->conns;
+    
+    /* ----------handle look up here--------*/
+    while (curr_conn != NULL) {
+        if (curr_conn->ip == ip_con) {
+        return curr_conn;
+    }
+        curr_conn = curr_conn->next;
+  }
 
+    return NULL;      
 };
 
 
@@ -312,5 +322,20 @@ struct sr_nat_connection *sr_nat_lookup_con(struct sr_nat_mapping *mapping, uint
    Returns a copy to the new connection
    */
 struct sr_nat_connection *sr_nat_insert_con(struct sr_nat_mapping *mapping, uint32_t ip_con) {
+   struct sr_nat_connection *new_conn = malloc(sizeof(struct sr_nat_connection));
+    
+    assert(new_conn != NULL);
+    memset(new_conn, 0, sizeof(struct sr_nat_connection));
 
+    new_conn->last_updated = time(NULL);
+    new_conn->ip = ip_con;
+    new_conn->tcp_state = CLOSED;
+
+    struct sr_nat_connection *curr_conn = mapping->conns;
+
+    mapping->conns = new_conn;
+    new_conn->next = curr_conn;
+
+    return new_conn;
+}
 }
