@@ -41,61 +41,6 @@ struct sr_rt *rt_lpm(struct sr_instance* sr, uint32_t ip){
    return longest_match;
 }
 
-/*-----------------------------------------------------------------------------
-   Method: rt_lpm -- finds the largest prefix match in routing table
-
-   sr: instance of a router
-   ip:  a 32bit ip address in network order
-
-   PSEUDO CODE:
-
-   FOREACH ENTRY:
-        BITWISE AND ENTRY ADDR, AND COMPARE IT TO BITWISE AND OF IP
-
-        IF MATCH
-            COUNT 'PREFIX' VIA BITMASK.
-            IF LONGER THAN PREVIOUS MATCH:
-                STORE, CONTINUE
-            ELSE:
-                CONTINUE
-        ELSE:
-            NEXT ENTRY
-
-
-        uint32_t host_mask = ntohl(mask);
-        
-        if(ip & mask == nexthop & mask){
-            
-            for(i=0; i < 32; i++){
-                
-                if((host_mask >> i)){
-
-                }
-            }
-
-        }
-        
------------------------------------------------------------------------------*/
-/*struct sr_rt *rt_lpm(struct sr_instance* sr, uint32_t ip){
-    struct sr_rt *entry = sr->routing_table;
-    struct sr_rt *longestmatch = NULL;
-    int longest = 0;
-
-    while(entry){
-        uint32_t mask = entry->mask.s_addr;
-        uint32_t nexthop = entry->dest.s_addr;
-        print_addr_ip_int(nexthop);
-        print_addr_ip_int(ip);
-        if(nexthop == ip){
-            return entry;
-        } else {
-            entry = entry->next;
-        }
-    }
-
-    return 0;
-}
-*/
 
 /*---------------------------------------------------------------------
  * Method:
