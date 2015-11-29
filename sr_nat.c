@@ -315,9 +315,6 @@ struct sr_nat_connection *sr_nat_lookup_con(struct sr_nat_mapping *mapping, uint
 };
 
 
-
-
-
 /* Insert a new connection associated with the given IP in the NAT entry
    Returns a copy to the new connection
    */
@@ -329,7 +326,7 @@ struct sr_nat_connection *sr_nat_insert_con(struct sr_nat_mapping *mapping, uint
 
     new_conn->last_updated = time(NULL);
     new_conn->ip = ip_con;
-    new_conn->tcp_state = CLOSED;
+    new_conn->state = CLOSED;
 
     struct sr_nat_connection *curr_conn = mapping->conns;
 
@@ -338,4 +335,4 @@ struct sr_nat_connection *sr_nat_insert_con(struct sr_nat_mapping *mapping, uint
 
     return new_conn;
 }
-}
+

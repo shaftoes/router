@@ -48,7 +48,6 @@ uint8_t MAC_BROADCAST[ETHER_ADDR_LEN] =   {255, 255, 255, 255, 255, 255};
     /* Initialize cache and cache cleanup thread */
     sr_arpcache_init(&(sr->cache));
     
-    
     pthread_attr_init(&(sr->attr));
     pthread_attr_setdetachstate(&(sr->attr), PTHREAD_CREATE_JOINABLE);
     pthread_attr_setscope(&(sr->attr), PTHREAD_SCOPE_SYSTEM);
@@ -142,8 +141,113 @@ void handle_ip_packet(struct sr_instance* sr,
         fprintf(stderr , "IP packet is way too short \n");
         return;
     }
-    if(sr->nat_enabled){
-      /*do something*/
+
+    if(sr->nat_enabled){   
+        if (ippacket->ip_p == IP_ICMP){
+          if(strcmp(interface, "eth1") == 0) {
+            
+            /*destination is me */ 
+            if (find_interface(sr,ippacket->ip_dst)) {  
+              fprintf(stderr, "ICMP request!\n");
+              handle_ip_icmp(sr, (uint8_t *) ippacket);
+            
+            /*receive on eth1 but destination is not me: ping server or others outside NAT*/ /*OR it want to be routed within NAT */
+            }else{ 
+              struct sr_rt *next_rt = rt_lpm(sr, ippacket->ip_dst); 
+              if(!next_rt){
+                 fprintf(stderr, "something went wrong! could not find interface for echo reply\n");
+                 return;
+              }
+              struct sr_if* nxiface = sr_get_interface(sr, next_rt->interface);
+              if(!nxiface){fprintf(stderr, "somethign went wrong! couldnt find iface for echo reply\n"); return;}
+              
+              if(strcmp(nxiface->name, "eth1") == 0){ /*no attempt to get out NAT, we dont need to modify it and just forward it*/
+                if ((ippacket->ip_ttl -= 1) <= 0) { 
+                  send_icmp_t3t11(sr, (uint8_t*) ippacket, len, 11, 0); return;
+                
+                }else{
+                  ippacket->ip_sum = 0;
+                  ippacket->ip_sum = cksum(ippacket, sizeof(sr_ip_hdr_t)); /*since ttl--, so recompute checksum*/
+                  send_ip_packet(sr,ippacket,len);
+                }
+              
+              }else if (strcmp(nxiface->name, "eth2") == 0){
+                sr_icmp_hdr_t* icmp_hder = (sr_icmp_hdr_t *) (ippacket + sizeof(sr_ip_hdr_t));
+                if(icmp_hder->icmp_type == 8 || icmp_hder->icmp_type == 0){ /*echo reply or echo request to be sent out */
+                  sr_nat_mapping_t *mapresult = sr_nat_lookup_internal(&(sr->nat), ippacket->ip_src, icmp_hder->icmp_id, nat_mapping_icmp);/*i added icmp_id to struct icmp_hdr*/
+                  if (mapresult == NULL) { /*cannot find the mapping, need to insert*/
+                      mapresult = sr_nat_insert_mapping(&(sr->nat), ippacket->ip_src, icmp_hder->icmp_id, nat_mapping_icmp);
+                  }
+                  nat_handle_outbound_icmp(sr, mapresult, ippacket, len);
+                  free(mapresult);
+                }
+              }
+            }
+          }
+          else if(strcmp(interface, "eth2") == 0) { 
+            /* compute checksum */
+            sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t *) ((uint8_t*) ippacket + sizeof(sr_ip_hdr_t));
+            size_t iphdr_bytelen = ippacket->ip_hl * 4;
+            uint16_t icmp_len =  ntohs(ippacket->ip_len) - iphdr_bytelen;
+            if(!icmp_checksum(icmp_hdr, icmp_len)){
+              return;
+            }
+
+            if (!find_interface(sr,ippacket->ip_dst)) {  /*destination is not me*/
+              /*we do longest match to find the outgoing interface*/
+              struct sr_rt *next_rt = rt_lpm(sr, ippacket->ip_dst); 
+              if(!next_rt){
+                 fprintf(stderr, "something went wrong! could not find interface for echo reply\n");
+                 return;
+              }
+
+              struct sr_if* nxiface = sr_get_interface(sr, next_rt->interface);
+              if(!nxiface){fprintf(stderr, "somethign went wrong! couldnt find iface for echo reply\n"); return;}
+              if(strcmp(nxiface->name, "eth2") == 0){ /*no attempt to get into NAT, wedont need to modify it and just forward it*/
+                if ((ippacket->ip_ttl -= 1) <= 0) { 
+                  send_icmp_t3t11(sr, (uint8_t*) ippacket, len, 11, 0); return;
+                }else{
+                  ippacket->ip_sum = 0;
+                  ippacket->ip_sum = cksum(ippacket, sizeof(sr_ip_hdr_t));
+                  send_ip_packet(sr,ippacket,len);
+                }
+              }else{ 
+                fprintf(stderr,"Unsolicid inbound ICMP packet received attempting to send to internal IP. Drop it");
+                /*do we need to sent some icmp unreachable here????*/
+                return;
+              }
+            }
+            
+            else { /*inbound packet & destination is me*/
+              /*struct sr_if* inface = sr_get_interface(sr, interface); first we need to find which interface is the dest.ip */
+              /*if(!inface){fprintf(stderr, "somethign went wrong! couldnt find iface for echo reply\n"); return;}*/
+              
+              if(ippacket->ip_dst == sr_get_interface(sr, "eth1")->ip) { /*cannot happen *bad attempt to get into NAT*/ /*NOT SURE usage correct or not*/
+                fprintf(stderr,"Unsolicited inbound ICMP packet received attempting to send to internal IP. Drop it");
+                /*do we need to sent some icmp unreachable here????*/
+                return;
+              }else {/*dest.ip is eth2*/
+               /*echo request/reply attempting to send in NAT*/
+                struct sr_nat_mapping *mapresult = sr_nat_lookup_internal(&(sr->nat), ippacket->ip_dst, icmp_hdr->icmp_id, nat_mapping_icmp);
+                if (mapresult) { /*we can find the mapping of this ip,port pair (already existed)*/
+                    fprintf(stderr,"got the mapping associated with this pair");
+                    /*then, we need to modify this packet's header using this mapping*/
+                    mapresult->last_updated = time(NULL); /*correct????*/
+                    nat_handle_inbound_icmp(sr, mapresult, ippacket, len);
+                    free(mapresult);
+                }
+                else { /*cannot find the mapping, */
+                  if(icmp_hdr->icmp_type == 0){ /*reply*/
+                      fprintf(stderr,"since router wouldn't ping others, there shouldn't be echo reply to router itself.we should drop it");
+                      return;
+                  }else if(icmp_hdr->icmp_type == 8){ /*request,couldn't find mapping,so assume sth outside nat is pinging eth2*/ 
+                      handle_ip_icmp(sr, (uint8_t *) ippacket); /*we just send an echo reply back*/
+                  }
+                }
+              }
+            }
+          }
+        }
     }else{
       /*---------------check if it's for me------------*/
       if (find_interface(sr,ippacket->ip_dst)) {
@@ -151,7 +255,6 @@ void handle_ip_packet(struct sr_instance* sr,
           if (ippacket->ip_p == IP_ICMP){
               fprintf(stderr, "ICMP request!\n");
               handle_ip_icmp(sr, (uint8_t *) ippacket);
-
           }
           /*-------------check TCP/UDP---------------*/
           else if (ippacket->ip_p == IP_UDP || ippacket->ip_p == IP_TCP) {   /*17--UDP,6--TCP*/
@@ -180,7 +283,25 @@ void handle_ip_packet(struct sr_instance* sr,
     free(ippacket);
 }
 
+/*-----------------------------------------------------------------------------
+  Method: icmp_checksum
 
+  computes checksum of ip packet. 1 on success, 0 on failue
+-----------------------------------------------------------------------------*/
+int icmp_checksum(sr_icmp_hdr_t* icmp_hdr, uint16_t icmp_len){
+  sr_icmp_hdr_t* check_hdr = malloc(icmp_len);
+    if(!check_hdr){
+       fprintf(stderr, "malloc error in checksum\n");
+       return;
+  }
+
+  memcpy(check_hdr, icmp_hdr, icmp_len);
+  check_hdr->icmp_sum = 0;
+  uint16_t checksum = cksum(check_hdr,icmp_len);
+  free(check_hdr);
+  if (checksum == icmp_hdr){ return 1;} else { return 0;}
+  
+}
 /*-----------------------------------------------------------------------------
    Method: handle_ip_icmp
 
@@ -193,25 +314,13 @@ void handle_ip_packet(struct sr_instance* sr,
 void handle_ip_icmp(struct sr_instance* sr, 
                     uint8_t* ip_packet)
 {
-   
     sr_ip_hdr_t* ip_header = (sr_ip_hdr_t*) ip_packet;
     sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t *) (ip_packet + sizeof(sr_ip_hdr_t));
     size_t iphdr_bytelen = ip_header->ip_hl * 4;
     uint16_t icmp_len =  ntohs(ip_header->ip_len) - iphdr_bytelen;
-
-     /* ---- checksum --------*/
-    sr_icmp_hdr_t* check_hdr = malloc(icmp_len);
-    if(!check_hdr){
-       fprintf(stderr, "malloc error in checksum\n");
-       return;
-    }
-
-    memcpy(check_hdr, icmp_hdr, icmp_len);
-    check_hdr->icmp_sum = 0;
-    uint16_t checksum = cksum(check_hdr,icmp_len);
-    free(check_hdr);
-
-    if(checksum != icmp_hdr->icmp_sum){ 
+    
+    int checksum = icmp_checksum(icmp_hdr, icmp_len);
+    if(!checksum){ 
         printf("ICMP checksum incorrect, expected %d, computed: %d; packet dropped\n", icmp_hdr->icmp_sum, checksum);
         return;
     }
@@ -275,7 +384,6 @@ void handle_ip_icmp(struct sr_instance* sr,
     free(ip_header);
 }
 
-
 /*-----------------------------------------------------------------------------
    Method: send_icmp
 
@@ -333,7 +441,6 @@ void send_icmp_t3t11(struct sr_instance* sr,
     }
     struct sr_if* iface_host = sr_get_interface(sr, rt_host->interface);
     if(!iface_host) {fprintf(stderr, "somethign went wrong! couldnt find iface for echo reply\n"); return;}
-    fprintf(stderr,"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     print_addr_ip_int(ntohl(iface_host->ip)); 
     ip_header->ip_src = iface_host->ip; 
 
@@ -542,7 +649,7 @@ void handle_arp_reply(struct sr_instance* sr,
 
   MUST BE
 -----------------------------------------------------------------------------*/
-  sr_arp_hdr_t* construct_arp_reply(sr_arp_hdr_t* arp_request, uint8_t* mac)
+sr_arp_hdr_t* construct_arp_reply(sr_arp_hdr_t* arp_request, uint8_t* mac)
   {
 
     sr_arp_hdr_t* arp_reply = malloc(sizeof(sr_arp_hdr_t));
@@ -596,3 +703,46 @@ int send_arp_reply( struct sr_instance* sr,
 
     return 1;
 }
+
+void nat_handle_outbound_icmp(struct sr_instance* sr, struct sr_nat_mapping* natmap, uint8_t* ip_packet, uint16_t len){
+     sr_ip_hdr_t* ip_header = (sr_ip_hdr_t*) ip_packet;
+     sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t *) (ip_packet + sizeof(sr_ip_hdr_t));
+     ip_header->ip_src = natmap->ip_ext;
+     icmp_hdr->icmp_id = natmap->aux_ext;
+     /* first,ttl-1;  then checksum??*/
+     icmp_hdr->icmp_sum = 0;
+
+     icmp_hdr->icmp_sum = cksum(icmp_hdr, (len - sizeof(sr_ip_hdr_t))); /*should we use sizeof(icmp_hdr) OR len-sizeof(ip_hdr)*/
+     if ((ip_header->ip_ttl -= 1) <= 0) {  
+            send_icmp_t3t11(sr, (uint8_t*) ip_header, len, 11, 0);
+            return;
+        }
+     else{
+            ip_header->ip_sum = 0;
+            ip_header->ip_sum = cksum(ip_header, sizeof(sr_ip_hdr_t));
+            send_ip_packet(sr,(uint8_t *) ip_header, len);
+        }
+ } 
+                
+ 
+ void nat_handle_inbound_icmp(struct sr_instance* sr, struct sr_nat_mapping* natmap, uint8_t* ip_packet, uint16_t len){
+    /*if it is request to sth inside nat,we modify the header using mapping and forward it*/
+    /*if it is reply to sth inside nat,we also modify header and forward it*/
+     sr_ip_hdr_t* ip_header = (sr_ip_hdr_t*) ip_packet;
+     sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t *) (ip_packet + sizeof(sr_ip_hdr_t));
+     ip_header->ip_dst = natmap->ip_int;
+     icmp_hdr->icmp_id = natmap->aux_int;
+     /* first,ttl-1;  then checksum??*/
+     icmp_hdr->icmp_sum = 0;
+     icmp_hdr->icmp_sum = cksum(icmp_hdr, sizeof(sr_icmp_hdr_t)); /*should we use sizeof(icmp_hdr) OR len-sizeof(ip_hdr)*/
+     if ((ip_header->ip_ttl -= 1) <= 0) {  
+            send_icmp_t3t11(sr, (uint8_t*) ip_header, len, 11, 0);
+            return;
+        }
+     else{
+            ip_header->ip_sum = 0;
+            ip_header->ip_sum = cksum(ip_header, sizeof(sr_ip_hdr_t));
+            send_ip_packet(sr, (uint8_t *) ip_header, len);
+        }
+ }
+

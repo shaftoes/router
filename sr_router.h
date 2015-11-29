@@ -131,6 +131,8 @@ void send_icmp_t3t11(struct sr_instance* sr,
                     uint8_t type, 
                     uint8_t code);
 
+int icmp_checksum(sr_icmp_hdr_t* icmp_hdr, uint16_t icmp_len);
+
 /* --------------------------------------------------------*/
 
 

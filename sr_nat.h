@@ -21,7 +21,8 @@ typedef enum {
   FIN_WAIT_1,
   FIN_WAIT_2,
   CLOSING,
-  TIME_WAIT
+  TIME_WAIT,
+  CLOSED
 } sr_nat_connection_state;
 
 struct sr_nat_connection {
