@@ -26,6 +26,10 @@ typedef enum {
 
 struct sr_nat_connection {
   /* add TCP connection state data members here */
+  uint32_t ip;  /* associated ip */
+  uint32_t client_isn; /* isn of the client*/
+  uint32_t server_isn; /* isn of the server */
+  time_t last_updated;
   sr_nat_connection_state state;
   struct sr_nat_connection *next;
   
