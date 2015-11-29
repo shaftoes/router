@@ -297,3 +297,20 @@ sr_nat_mapping_t *sr_nat_insert_mapping(struct sr_nat *nat,
   pthread_mutex_unlock(&(nat->lock));
   return mapping;
 }
+/* Get the connection associated with the given IP in the NAT entry
+   Returns a copy to the connection
+   */
+struct sr_nat_connection *sr_nat_lookup_con(struct sr_nat_mapping *mapping, uint32_t ip_con){
+
+};
+
+
+
+
+
+/* Insert a new connection associated with the given IP in the NAT entry
+   Returns a copy to the new connection
+   */
+struct sr_nat_connection *sr_nat_insert_con(struct sr_nat_mapping *mapping, uint32_t ip_con) {
+
+}
