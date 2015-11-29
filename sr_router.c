@@ -47,7 +47,12 @@ uint8_t MAC_BROADCAST[ETHER_ADDR_LEN] =   {255, 255, 255, 255, 255, 255};
 
     /* Initialize cache and cache cleanup thread */
     sr_arpcache_init(&(sr->cache));
-
+    
+     /* Initialize NAT */
+    if (sr->nat_enabled) {
+        sr_nat_init(&(sr->nat));
+    }
+    
     pthread_attr_init(&(sr->attr));
     pthread_attr_setdetachstate(&(sr->attr), PTHREAD_CREATE_JOINABLE);
     pthread_attr_setscope(&(sr->attr), PTHREAD_SCOPE_SYSTEM);
