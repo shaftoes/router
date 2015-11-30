@@ -143,7 +143,10 @@ void handle_ip_packet(struct sr_instance* sr,
     }
 
     if(sr->nat_enabled){   
-        if (ippacket->ip_p == IP_ICMP){
+        if(ippacket->ip_p == IP_TCP){
+          handle_nat_ip(sr, ippacket, len, interface);
+        }
+        else if (ippacket->ip_p == IP_ICMP){
           if(strcmp(interface, "eth1") == 0) {
             
             /*destination is me */ 
@@ -706,14 +709,15 @@ int send_arp_reply( struct sr_instance* sr,
     return 1;
 }
 
-void nat_handle_outbound_icmp(struct sr_instance* sr, struct sr_nat_mapping* natmap, uint8_t* ip_packet, uint16_t len){
+
+
+ void nat_handle_outbound_icmp(struct sr_instance* sr, struct sr_nat_mapping* natmap, uint8_t* ip_packet, uint16_t len){
      sr_ip_hdr_t* ip_header = (sr_ip_hdr_t*) ip_packet;
      sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t *) (ip_packet + sizeof(sr_ip_hdr_t));
      ip_header->ip_src = natmap->ip_ext;
      icmp_hdr->icmp_id = natmap->aux_ext;
      /* first,ttl-1;  then checksum??*/
      icmp_hdr->icmp_sum = 0;
-
      icmp_hdr->icmp_sum = cksum(icmp_hdr, (len - sizeof(sr_ip_hdr_t))); /*should we use sizeof(icmp_hdr) OR len-sizeof(ip_hdr)*/
      if ((ip_header->ip_ttl -= 1) <= 0) {  
             send_icmp_t3t11(sr, (uint8_t*) ip_header, len, 11, 0);
@@ -724,19 +728,20 @@ void nat_handle_outbound_icmp(struct sr_instance* sr, struct sr_nat_mapping* nat
             ip_header->ip_sum = cksum(ip_header, sizeof(sr_ip_hdr_t));
             send_ip_packet(sr,(uint8_t *) ip_header, len);
         }
+     free(ip_packet);
  } 
                 
  
  void nat_handle_inbound_icmp(struct sr_instance* sr, struct sr_nat_mapping* natmap, uint8_t* ip_packet, uint16_t len){
-    /*if it is request to sth inside nat,we modify the header using mapping and forward it*/
-    /*if it is reply to sth inside nat,we also modify header and forward it*/
+                    /*if it is request to sth inside nat,we modify the header using mapping and forward it*/
+                    /*if it is reply to sth inside nat,we also modify header and forward it*/
      sr_ip_hdr_t* ip_header = (sr_ip_hdr_t*) ip_packet;
      sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t *) (ip_packet + sizeof(sr_ip_hdr_t));
      ip_header->ip_dst = natmap->ip_int;
      icmp_hdr->icmp_id = natmap->aux_int;
      /* first,ttl-1;  then checksum??*/
      icmp_hdr->icmp_sum = 0;
-     icmp_hdr->icmp_sum = cksum(icmp_hdr, sizeof(sr_icmp_hdr_t)); /*should we use sizeof(icmp_hdr) OR len-sizeof(ip_hdr)*/
+     icmp_hdr->icmp_sum = cksum(icmp_hdr, (len - sizeof(sr_ip_hdr_t))); /*should we use sizeof(icmp_hdr) OR len-sizeof(ip_hdr)*/
      if ((ip_header->ip_ttl -= 1) <= 0) {  
             send_icmp_t3t11(sr, (uint8_t*) ip_header, len, 11, 0);
             return;
@@ -746,5 +751,223 @@ void nat_handle_outbound_icmp(struct sr_instance* sr, struct sr_nat_mapping* nat
             ip_header->ip_sum = cksum(ip_header, sizeof(sr_ip_hdr_t));
             send_ip_packet(sr, (uint8_t *) ip_header, len);
         }
+     free(ip_packet);
+ }
+
+
+void handle_nat_ip (struct sr_instance* sr,
+                      struct sr_ip_hdr *ippacket/* unchanged/lent */,
+                      unsigned int len,
+                      char* interface/* lent */){
+  sr_tcp_hdr_t *tcphdr = (sr_tcp_hdr_t *) (ippacket + sizeof(sr_ip_hdr_t));
+
+  if(strcmp(interface, "eth1") == 0) { /*outbound*/
+    
+    /*destination is me */ 
+    if (find_interface(sr,ippacket->ip_dst)) {  
+      fprintf(stderr, "port unreachable\n");
+      send_icmp_t3t11(sr, (uint8_t *) ippacket, len, 3, 3);
+    
+    /*receive on eth1 but destination is not me: reach server or others outside NAT*/ /*OR it want to be routed within NAT */
+    }else{
+    
+      struct sr_rt *next_rt = rt_lpm(sr, ippacket->ip_dst); 
+      if(!next_rt){
+         fprintf(stderr, "something went wrong! could not find interface for echo reply\n");
+         return;
+      }
+      struct sr_if* nxiface = sr_get_interface(sr, next_rt->interface);
+      if(!nxiface){fprintf(stderr, "somethign went wrong! couldnt find iface for echo reply\n"); return;}
+      
+      if(strcmp(nxiface->name, "eth1") == 0){ /*no attempt to get out NAT, we dont need to modify it and just forward it*/
+        if ((ippacket->ip_ttl -= 1) <= 0) { 
+          send_icmp_t3t11(sr, (uint8_t*) ippacket, len, 11, 0); return;
+        
+        }else{
+          ippacket->ip_sum = 0;
+          ippacket->ip_sum = cksum(ippacket, sizeof(sr_ip_hdr_t)); /*since ttl--, so recompute checksum*/
+          send_ip_packet(sr,ippacket,len); /*here we don't need to recompute tcp cksum right? coz we didn't change tcp header & data*/
+            }
+      }else if (strcmp(nxiface->name, "eth2") == 0){
+        sr_nat_mapping_t *mapresult = sr_nat_lookup_internal(&(sr->nat), ippacket->ip_src, ntohs(tcphdr->port_src), nat_mapping_tcp);
+        if (mapresult == NULL) { /*cannot find the mapping, need to insert*/
+            mapresult = sr_nat_insert_mapping(&(sr->nat), ippacket->ip_src, ntohs(tcphdr->port_src), nat_mapping_tcp);
+            mapresult->ip_ext = (sr_get_interface(sr, nxiface->name))->ip;
+        }
+        /*mapresult->last_updated = time(NULL);*/
+        
+        /*here we need to use the router's lock*/
+        pthread_mutex_lock(&((sr->nat).lock));
+        
+
+        struct sr_nat_connection *tcpcon = sr_nat_lookup_con(mapresult, ippacket->ip_dst); /*in lookup_con(),there's no last_updated = time(NULL), dk if we should add it */
+        
+         if (tcpcon == NULL) {
+          tcpcon = sr_nat_insert_con(mapresult, ippacket->ip_dst);
+          }
+         tcpcon->last_updated = time(NULL);
+         
+         switch (tcpcon->state) {
+         
+           case CLOSED: 
+             if (ntohl(tcphdr->ack_num) == 0 && tcphdr->syn && !tcphdr->ack) {
+               tcpcon->client_isn = ntohl(tcphdr->seq_num);
+               tcpcon->state = SYN_SENT;
+             }
+           break;
+
+           case SYN_RECEIVED: 
+             if (ntohl(tcphdr->seq_num) == tcpcon->client_isn + 1 && ntohl(tcphdr->ack_num) == tcpcon->server_isn + 1 && !tcphdr->syn) { 
+             
+               tcpcon->client_isn = ntohl(tcphdr->seq_num);
+               tcpcon->state = ESTABLISHED;
+            }
+           break;
+
+           case ESTABLISHED:
+            if (tcphdr->fin && tcphdr->ack) {
+               tcpcon->client_isn = ntohl(tcphdr->seq_num);
+               tcpcon->state = CLOSED;
+            }
+           break;
+
+           default:
+            break;
+        
+            }
+
+      pthread_mutex_unlock(&((sr->nat).lock));
+      /* End of router's lock. */
+      
+      nat_handle_outbound_tcp(sr, mapresult, ippacket,  len);
+      free(mapresult);
+      
+      }
+    }   
+  }
+  else if(strcmp(interface, "eth2") == 0) { 
+
+    if (!find_interface(sr,ippacket->ip_dst)) {  /*destination is not me*/
+      /*we do longest match to find the outgoing interface*/
+      struct sr_rt *next_rt = rt_lpm(sr, ippacket->ip_dst); 
+      if(!next_rt){
+         fprintf(stderr, "something went wrong! could not find interface for echo reply\n");
+         return;
+      }
+
+      struct sr_if* nxiface = sr_get_interface(sr, next_rt->interface);
+      if(!nxiface){fprintf(stderr, "somethign went wrong! couldnt find iface for echo reply\n"); return;}
+      if(strcmp(nxiface->name, "eth2") == 0){ /*no attempt to get into NAT, wedont need to modify it and just forward it*/
+        if ((ippacket->ip_ttl -= 1) <= 0) { 
+          send_icmp_t3t11(sr, (uint8_t*) ippacket, len, 11, 0); return;
+        }else{
+          ippacket->ip_sum = 0;
+          ippacket->ip_sum = cksum(ippacket, sizeof(sr_ip_hdr_t));
+          send_ip_packet(sr,ippacket,len);
+        }
+      }else{ 
+        fprintf(stderr,"Unsolicited inbound ICMP packet received attempting to send to internal IP. Drop it");
+        /*do we need to sent some icmp unreachable here????*/
+        return;
+      }
+    }
+      
+    else { /*inbound packet & destination is me*/
+      
+      if(ippacket->ip_dst == sr_get_interface(sr, "eth1")->ip) { /*cannot happen *bad attempt to get into NAT*/ /*NOT SURE usage correct or not*/
+        fprintf(stderr,"Unsolicited inbound ICMP packet received attempting to send to internal IP. Drop it");
+        /*do we need to sent some icmp unreachable here????*/
+        return;
+      }else {/*dest.ip is eth2*/
+   
+        struct sr_nat_mapping *mapresult = sr_nat_lookup_external(&(sr->nat), ntohs(tcphdr->port_dst), nat_mapping_tcp);
+
+        if (mapresult) { /* else no mapping , what should we do?*/ 
+        /*ppt:if(no mapping and not a SYN (for  simultaneous  open) ), ->> drop packet  */
+          pthread_mutex_lock(&((sr->nat).lock));
+            
+          struct sr_nat_connection *tcpcon = sr_nat_lookup_con(mapresult, ippacket->ip_src); /*in lookup_con(),there's no last_updated = time(NULL), dk if we should add it */
+          
+           if (tcpcon == NULL) {
+            tcpcon = sr_nat_insert_con(mapresult, ippacket->ip_src);
+            }
+           tcpcon->last_updated = time(NULL);  
+              
+           switch (tcpcon->state) {
+           
+             case SYN_SENT:
+               if (ntohl(tcphdr->ack_num) == tcpcon->client_isn + 1 && tcphdr->syn && tcphdr->ack) {
+                 tcpcon->server_isn = ntohl(tcphdr->seq_num);
+                 tcpcon->state = SYN_RECEIVED;
+               }
+               
+               /* NOT SURE : Simultaneous open */
+               else if (ntohl(tcphdr->ack_num) == 0 && tcphdr->syn && !tcphdr->ack) {
+                 tcpcon->server_isn = ntohl(tcphdr->seq_num);
+                 tcpcon->state = SYN_RECEIVED;
+               }
+               break;
+      
+               default:
+               break;
+               }
+               
+            pthread_mutex_unlock(&((sr->nat).lock));
+            
+            nat_handle_inbound_tcp(sr, mapresult, ippacket, len);
+            free(mapresult);
+              
+        }else{
+          fprintf(stderr, "incoming IP packet (non-syn) not destined for us, dropping");
+        }
+      }
+    }
+  }
+}
+
+void nat_handle_outbound_tcp(struct sr_instance* sr, struct sr_nat_mapping* nat_mapping, uint8_t* ip_packet, uint16_t len){
+
+     sr_ip_hdr_t* ip_header = (sr_ip_hdr_t*) ip_packet;
+     sr_tcp_hdr_t* tcp_hdr = (sr_tcp_hdr_t *) (ip_packet + sizeof(sr_ip_hdr_t));
+     ip_header->ip_src = nat_mapping->ip_ext;
+     tcp_hdr->port_src = htons(nat_mapping->aux_ext);
+
+     /* first,ttl-1;  then checksum*/
+     tcp_hdr->tcp_sum = 0;
+     tcp_hdr->tcp_sum = cksum(tcp_hdr, (len - sizeof(sr_ip_hdr_t))); /*should we use sizeof(icmp_hdr) OR len-sizeof(ip_hdr)*/
+
+     if ((ip_header->ip_ttl -= 1) <= 0) {
+            send_icmp_t3t11(sr, (uint8_t*) ip_header, len, 11, 0);
+            return;
+        }
+     else{
+            ip_header->ip_sum = 0;
+            ip_header->ip_sum = cksum(ip_header, sizeof(sr_ip_hdr_t));
+            send_ip_packet(sr,(uint8_t *) ip_header, len);
+        }
+ }
+
+       
+
+ void nat_handle_inbound_tcp(struct sr_instance* sr, struct sr_nat_mapping* nat_mapping,uint8_t* ip_packet,uint16_t len){
+
+     sr_ip_hdr_t* ip_header = (sr_ip_hdr_t*) ip_packet;
+     sr_tcp_hdr_t* tcp_hdr = (sr_tcp_hdr_t *) (ip_packet + sizeof(sr_ip_hdr_t));
+     ip_header->ip_dst = nat_mapping->ip_int;
+     tcp_hdr->port_dst = htons(nat_mapping->aux_int);
+
+     /* first,ttl-1;  then checksum??*/
+     tcp_hdr->tcp_sum = 0;
+     tcp_hdr->tcp_sum = cksum(tcp_hdr, (len - sizeof(sr_ip_hdr_t))); /*should we use sizeof(icmp_hdr) OR len-sizeof(ip_hdr)*/
+     if ((ip_header->ip_ttl -= 1) <= 0) {
+            send_icmp_t3t11(sr, (uint8_t*) ip_header, len, 11, 0);
+            return;
+        }
+     else{
+            ip_header->ip_sum = 0;
+            ip_header->ip_sum = cksum(ip_header, sizeof(sr_ip_hdr_t));
+            send_ip_packet(sr, (uint8_t *) ip_header, len);
+        }
+
  }
 

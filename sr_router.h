@@ -133,6 +133,14 @@ void send_icmp_t3t11(struct sr_instance* sr,
 
 int icmp_checksum(sr_icmp_hdr_t* icmp_hdr, uint16_t icmp_len);
 
+void handle_nat_ip (struct sr_instance* sr,
+                      struct sr_ip_hdr *ippacket/* unchanged/lent */,
+                      unsigned int len,
+                      char* interface/* lent */);
+
+void nat_handle_inbound_icmp(struct sr_instance* sr, struct sr_nat_mapping* natmap, uint8_t* ip_packet, uint16_t len);
+void nat_handle_outbound_tcp(struct sr_instance* sr, struct sr_nat_mapping* nat_mapping, uint8_t* ip_packet, uint16_t len);
+void nat_handle_inbound_tcp(struct sr_instance* sr, struct sr_nat_mapping* nat_mapping,uint8_t* ip_packet,uint16_t len);
 /* --------------------------------------------------------*/
 
 
