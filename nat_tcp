@@ -82,3 +82,49 @@
     }
 
 
+void nat_handle_outbound_tcp(struct sr_instance* sr, struct sr_nat_mapping* nat_mapping, uint8_t* ip_packet, uint16_t len){
+
+     sr_ip_hdr_t* ip_header = (sr_ip_hdr_t*) ip_packet;
+     sr_tcp_hdr_t* tcp_hdr = (sr_tcp_hdr_t *) (ip_packet + sizeof(sr_ip_hdr_t));
+     ip_header->ip_src = nat_mapping->ip_ext;
+     tcp_hdr->port_src = nat_mapping->aux_ext;
+
+     /* first,ttl-1;  then checksum*/
+     tcp_hdr->tcp_sum = 0;
+     tcp_hdr->tcp_sum = cksum(tcp_hdr, (len - sizeof(sr_ip_hdr_t))); /*should we use sizeof(icmp_hdr) OR len-sizeof(ip_hdr)*/
+
+     if ((ip_header->ip_ttl -= 1) <= 0) {
+            send_icmp_t3t11(sr, (uint8_t*) ip_header, len, 11, 0);
+            return;
+        }
+     else{
+            ip_header->ip_sum = 0;
+            ip_header->ip_sum = cksum(ip_header, sizeof(sr_ip_hdr_t));
+            send_ip_packet(sr,(uint8_t *) ip_header, len);
+        }
+     free(ip_packet);
+ }
+
+
+ void nat_handle_inbound_tcp(struct sr_nat_mapping* nat_mapping,uint8_t* ip_packet,uint16_t len){
+
+     sr_ip_hdr_t* ip_header = (sr_ip_hdr_t*) ip_packet;
+     sr_tcp_hdr_t* tcp_hdr = (sr_tcp_hdr_t *) (ip_packet + sizeof(sr_ip_hdr_t));
+     ip_header->ip_dst = nat_mapping->ip_int;
+     tcp_hdr->port_dst = nat_mapping->aux_int;
+
+     /* first,ttl-1;  then checksum??*/
+     tcp_hdr->tcp_sum = 0;
+     tcp_hdr->tcp_sum = cksum(tcp_hdr, (len - sizeof(sr_ip_hdr_t))); /*should we use sizeof(icmp_hdr) OR len-sizeof(ip_hdr)*/
+     if ((ip_header->ip_ttl -= 1) <= 0) {
+            send_icmp_t3t11(sr, (uint8_t*) ip_header, len, 11, 0);
+            return;
+        }
+     else{
+            ip_header->ip_sum = 0;
+            ip_header->ip_sum = cksum(ip_header, sizeof(sr_ip_hdr_t));
+            send_ip_packet(sr, (uint8_t *) ip_header, len);
+        }
+     free(ip_packet);
+
+ }
