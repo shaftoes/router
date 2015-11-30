@@ -230,7 +230,7 @@ void handle_ip_packet(struct sr_instance* sr,
                 return;
               }else {/*dest.ip is eth2*/
                /*echo request/reply attempting to send in NAT*/
-                struct sr_nat_mapping *mapresult = sr_nat_lookup_internal(&(sr->nat), ippacket->ip_dst, icmp_hdr->icmp_id, nat_mapping_icmp);
+                struct sr_nat_mapping *mapresult = sr_nat_lookup_external(&(sr->nat), icmp_hdr->icmp_id, nat_mapping_icmp);
                 if (mapresult) { /*we can find the mapping of this ip,port pair (already existed)*/
                     fprintf(stderr,"got the mapping associated with this pair");
                     /*then, we need to modify this packet's header using this mapping*/
