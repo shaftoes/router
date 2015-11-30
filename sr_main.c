@@ -112,7 +112,7 @@ int main(int argc, char **argv)
                 template = optarg;
                 break;
             case 'n':
-                nat = 1;
+                nat_enabled = 1;
             case 'I':
                 icmp_timeout = atoi((char*) optarg);
                 break;
