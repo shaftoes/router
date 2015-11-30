@@ -91,6 +91,8 @@ struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_nat *nat,
 struct sr_nat_connection *sr_nat_lookup_con(struct sr_nat_mapping *mapping, uint32_t ip_con);
 
 /* Insert a new connection into the list of a mapping */
-struct sr_nat_connection *sr_nat_insert_con(struct sr_nat_mapping *mapping, uint32_t ip_con)
+struct sr_nat_connection *sr_nat_insert_con(struct sr_nat_mapping *mapping, uint32_t ip_con);
+
+void nat_handle_outbound_icmp(struct sr_instance* sr, struct sr_nat_mapping* natmap, uint8_t* ip_packet, uint16_t len);
 
 #endif
