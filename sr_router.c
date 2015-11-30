@@ -179,7 +179,7 @@ void handle_ip_packet(struct sr_instance* sr,
                       mapresult = sr_nat_insert_mapping(&(sr->nat), ippacket->ip_src, icmp_hder->icmp_id, nat_mapping_icmp);
                       mapresult->ip_ext = (sr_get_interface(sr, nxiface->name))->ip;
                   }
-                  mapresult->last_updated = time(NULL);
+                  /*mapresult->last_updated = time(NULL);*/
                   nat_handle_outbound_icmp(sr, mapresult, ippacket, len);
                   free(mapresult);
                 }
@@ -234,7 +234,7 @@ void handle_ip_packet(struct sr_instance* sr,
                 if (mapresult) { /*we can find the mapping of this ip,port pair (already existed)*/
                     fprintf(stderr,"got the mapping associated with this pair");
                     /*then, we need to modify this packet's header using this mapping*/
-                    mapresult->last_updated = time(NULL); /*correct????*/
+                    /*mapresult->last_updated = time(NULL); /*correct????*/
                     nat_handle_inbound_icmp(sr, mapresult, ippacket, len);
                     free(mapresult);
                 }
