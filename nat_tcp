@@ -2,7 +2,7 @@
    else if (ippacket->ip_p == 6) {
             fprintf(stderr, "TCP packet");
 
-            struct sr_tcp_hdr_t *tcp_hdr = packet + sizeof(sr_ip_hdr_t);
+            struct sr_tcp_hdr_t *tcppacket = packet + sizeof(sr_ip_hdr_t);
 
             /*-------check if packet is received on NAT's internal interface----------------*/
             if(iface->ip == eth1_addr){
@@ -18,7 +18,7 @@
 					struct sr_nat_mapping* nat_mapping = sr_nat_lookup_internal(&(sr->nat), ntohs(ippacket->ip_src), ntohs(tcppacket->port_src), nat_mapping_tcp);
 
 					/*-------if packet is a SYN--------*/
-					if( tcp_hdr->syn){
+					if( tcppacketr->syn){
 						if (nat_mapping == NULL){
 							pthread_mutex_lock(&(nat->lock));
 
@@ -52,18 +52,18 @@
 							pthread_mutex_unlock(&(nat->lock));
 						}
 					}
-					else if (!tcp_hdr->syn && nat_mapping == NULL){
+					else if (!tcppacket->syn && nat_mapping == NULL){
                         
 					}
 					
 					
 					/*----if it's not a SYN and no mapping, drop it-------*/
-					else if (!(tcp_hdr->syn) && nat_mapping == NULL){
+					else if (!(tcppacket->syn) && nat_mapping == NULL){
 						return;
 					}
 
 					/*-----if it's a FIN and mapping exists----*/
-					else if (tcp_hdr->fin && nat_mapping != NULL){
+					else if (tcppacket->fin && nat_mapping != NULL){
 						pthread_mutex_lock(&(nat->lock));
 
 						pthread_mutex_unlock(&(nat->lock));
