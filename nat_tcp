@@ -87,7 +87,7 @@ void nat_handle_outbound_tcp(struct sr_instance* sr, struct sr_nat_mapping* nat_
      sr_ip_hdr_t* ip_header = (sr_ip_hdr_t*) ip_packet;
      sr_tcp_hdr_t* tcp_hdr = (sr_tcp_hdr_t *) (ip_packet + sizeof(sr_ip_hdr_t));
      ip_header->ip_src = nat_mapping->ip_ext;
-     tcp_hdr->port_src = nat_mapping->aux_ext;
+     tcp_hdr->port_src = htons(nat_mapping->aux_ext);
 
      /* first,ttl-1;  then checksum*/
      tcp_hdr->tcp_sum = 0;
@@ -102,16 +102,16 @@ void nat_handle_outbound_tcp(struct sr_instance* sr, struct sr_nat_mapping* nat_
             ip_header->ip_sum = cksum(ip_header, sizeof(sr_ip_hdr_t));
             send_ip_packet(sr,(uint8_t *) ip_header, len);
         }
-     free(ip_packet);
  }
 
+       
 
  void nat_handle_inbound_tcp(struct sr_nat_mapping* nat_mapping,uint8_t* ip_packet,uint16_t len){
 
      sr_ip_hdr_t* ip_header = (sr_ip_hdr_t*) ip_packet;
      sr_tcp_hdr_t* tcp_hdr = (sr_tcp_hdr_t *) (ip_packet + sizeof(sr_ip_hdr_t));
      ip_header->ip_dst = nat_mapping->ip_int;
-     tcp_hdr->port_dst = nat_mapping->aux_int;
+     tcp_hdr->port_dst = htons(nat_mapping->aux_int);
 
      /* first,ttl-1;  then checksum??*/
      tcp_hdr->tcp_sum = 0;
@@ -125,6 +125,5 @@ void nat_handle_outbound_tcp(struct sr_instance* sr, struct sr_nat_mapping* nat_
             ip_header->ip_sum = cksum(ip_header, sizeof(sr_ip_hdr_t));
             send_ip_packet(sr, (uint8_t *) ip_header, len);
         }
-     free(ip_packet);
 
  }
