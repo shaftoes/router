@@ -99,7 +99,7 @@ if (nat_enabled){
      icmp_hdr->icmp_id = natmap->aux_ext;
      /* first,ttl-1;  then checksum??*/
      icmp_hdr->icmp_sum = 0;
-     icmp_hdr->icmp_sum = icmp_cksum(icmp_hdr, (len - sizeof(sr_ip_hdr_t))); /*should we use sizeof(icmp_hdr) OR len-sizeof(ip_hdr)*/
+     icmp_hdr->icmp_sum = cksum(icmp_hdr, (len - sizeof(sr_ip_hdr_t))); /*should we use sizeof(icmp_hdr) OR len-sizeof(ip_hdr)*/
      if ((ip_header->ip_ttl -= 1) <= 0) {  
             send_icmp_t3t11(sr, (uint8_t*) ip_header, len, 11, 0);
             return;
@@ -122,7 +122,7 @@ if (nat_enabled){
      icmp_hdr->icmp_id = natmap->aux_int;
      /* first,ttl-1;  then checksum??*/
      icmp_hdr->icmp_sum = 0;
-     icmp_hdr->icmp_sum = icmp_cksum(icmp_hdr, (len - sizeof(sr_ip_hdr_t))); /*should we use sizeof(icmp_hdr) OR len-sizeof(ip_hdr)*/
+     icmp_hdr->icmp_sum = cksum(icmp_hdr, (len - sizeof(sr_ip_hdr_t))); /*should we use sizeof(icmp_hdr) OR len-sizeof(ip_hdr)*/
      if ((ip_header->ip_ttl -= 1) <= 0) {  
             send_icmp_t3t11(sr, (uint8_t*) ip_header, len, 11, 0);
             return;
