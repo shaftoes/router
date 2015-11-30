@@ -177,6 +177,7 @@ void handle_ip_packet(struct sr_instance* sr,
                   sr_nat_mapping_t *mapresult = sr_nat_lookup_internal(&(sr->nat), ippacket->ip_src, icmp_hder->icmp_id, nat_mapping_icmp);/*i added icmp_id to struct icmp_hdr*/
                   if (mapresult == NULL) { /*cannot find the mapping, need to insert*/
                       mapresult = sr_nat_insert_mapping(&(sr->nat), ippacket->ip_src, icmp_hder->icmp_id, nat_mapping_icmp);
+                      mapresult->ip_ext = (sr_get_interface(sr, nxiface->name))->ip;
                   }
                   nat_handle_outbound_icmp(sr, mapresult, ippacket, len);
                   free(mapresult);
