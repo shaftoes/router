@@ -166,10 +166,13 @@ struct sr_nat_mapping *copy_nat_mapping(struct sr_nat_mapping *mapping){
   sr_nat_mapping_t *copy = malloc(sizeof(sr_nat_mapping_t));
   if(!memcpy(copy, mapping, sizeof(sr_nat_mapping_t))){return NULL;}
       /*copy connections:*/
+      if(mapping->type == nat_mapping_icmp){
+	return copy;
+     }
       struct sr_nat_connection *next_conn = mapping->conns;
       struct sr_nat_connection *new_conns = NULL;
       struct sr_nat_connection *curr_new_conns = NULL;
-      while(!next_conn){
+      while(next_conn){
         if(!new_conns){
           /*first iteration add to new_conns*/
           if(!(new_conns = malloc(sizeof(sr_nat_connection_t)))){return NULL;}
@@ -204,12 +207,18 @@ struct sr_nat_mapping *sr_nat_lookup_external(struct sr_nat *nat,
   pthread_mutex_lock(&(nat->lock));
 
   /* handle lookup here, malloc and assign to copy */
-  struct sr_nat_mapping *copy = NULL;
+  struct sr_nat_mapping *copy = NULL; 
+  if(nat->mappings == NULL){fprintf(stderr, "no mappings to begin with\n");}
+  else{fprintf(stderr, "mappings exist\n");}
   sr_nat_mapping_t *next_map = nat->mappings;
   while(next_map){
     if(next_map->aux_ext == aux_ext){
+      fprintf(stderr, "found mapping!\n");
       next_map->last_updated = time(NULL);
       copy = copy_nat_mapping(next_map);
+      break;
+    }else{
+    	next_map = next_map->next;
     }
   }
   pthread_mutex_unlock(&(nat->lock));
@@ -291,6 +300,9 @@ sr_nat_mapping_t *sr_nat_insert_mapping(struct sr_nat *nat,
     new_map->aux_ext = port;
     new_map->last_updated = time(NULL);
     new_map->conns = NULL;
+    new_map->next = nat->mappings;
+
+    nat->mappings = new_map;
     *mapping = *new_map;
   }
 
