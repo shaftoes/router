@@ -143,15 +143,17 @@ void handle_ip_packet(struct sr_instance* sr,
     }
 
     if(sr->nat_enabled){   
-        if(ippacket->ip_p == IP_TCP){
+        fprintf(stderr, "nat is enabled\n");
+	if(ippacket->ip_p == IP_TCP){
           handle_nat_ip(sr, ippacket, len, interface);
         }
         else if (ippacket->ip_p == IP_ICMP){
+	  fprintf(stderr, "received icmp packet over nat\n");
           if(strcmp(interface, "eth1") == 0) {
-            
             /*destination is me */ 
             if (find_interface(sr,ippacket->ip_dst)) {  
               fprintf(stderr, "ICMP request!\n");
+	      fprintf(stderr, "destined for NAT\n");
               handle_ip_icmp(sr, (uint8_t *) ippacket);
             
             /*receive on eth1 but destination is not me: ping server or others outside NAT*/ /*OR it want to be routed within NAT */
@@ -165,7 +167,7 @@ void handle_ip_packet(struct sr_instance* sr,
               if(!nxiface){fprintf(stderr, "somethign went wrong! couldnt find iface for echo reply\n"); return;}
               
               if(strcmp(nxiface->name, "eth1") == 0){ /*no attempt to get out NAT, we dont need to modify it and just forward it*/
-                if ((ippacket->ip_ttl -= 1) <= 0) { 
+		if ((ippacket->ip_ttl -= 1) <= 0) { 
                   send_icmp_t3t11(sr, (uint8_t*) ippacket, len, 11, 0); return;
                 
                 }else{
@@ -175,14 +177,18 @@ void handle_ip_packet(struct sr_instance* sr,
                 }
               
               }else if (strcmp(nxiface->name, "eth2") == 0){
-                sr_icmp_hdr_t* icmp_hder = (sr_icmp_hdr_t *) (ippacket + sizeof(sr_ip_hdr_t));
+                sr_icmp_hdr_t* icmp_hder = (sr_icmp_hdr_t *) ((uint8_t*) ippacket + sizeof(sr_ip_hdr_t));
                 if(icmp_hder->icmp_type == 8 || icmp_hder->icmp_type == 0){ /*echo reply or echo request to be sent out */
-                  sr_nat_mapping_t *mapresult = sr_nat_lookup_internal(&(sr->nat), ippacket->ip_src, icmp_hder->icmp_id, nat_mapping_icmp);/*i added icmp_id to struct icmp_hdr*/
+                  fprintf(stderr, " echo reply or request\n");	  
+		  sr_nat_mapping_t *mapresult = sr_nat_lookup_internal(&(sr->nat), ippacket->ip_src, icmp_hder->icmp_id, nat_mapping_icmp);/*i added icmp_id to struct icmp_hdr*/
                   if (mapresult == NULL) { /*cannot find the mapping, need to insert*/
+		      fprintf(stderr, "inserting new mapping:\n");
                       mapresult = sr_nat_insert_mapping(&(sr->nat), ippacket->ip_src, icmp_hder->icmp_id, nat_mapping_icmp);
-                      mapresult->ip_ext = (sr_get_interface(sr, nxiface->name))->ip;
-                  }
+                  }else{
+		      fprintf(stderr,"mapping already exists\n");
+		  }
                   /*mapresult->last_updated = time(NULL);*/
+                  mapresult->ip_ext = (sr_get_interface(sr, nxiface->name))->ip;
                   nat_handle_outbound_icmp(sr, mapresult, ippacket, len);
                   free(mapresult);
                 }
@@ -191,16 +197,18 @@ void handle_ip_packet(struct sr_instance* sr,
           }
           else if(strcmp(interface, "eth2") == 0) { 
             /* compute checksum */
+	    fprintf(stderr, "received inbound icmp echo reply/request\n");
             sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t *) ((uint8_t*) ippacket + sizeof(sr_ip_hdr_t));
             size_t iphdr_bytelen = ippacket->ip_hl * 4;
             uint16_t icmp_len =  ntohs(ippacket->ip_len) - iphdr_bytelen;
             if(!icmp_checksum(icmp_hdr, icmp_len)){
               return;
             }
-
+	    fprintf(stderr, "hi\n");
             if (!find_interface(sr,ippacket->ip_dst)) {  /*destination is not me*/
               /*we do longest match to find the outgoing interface*/
-              struct sr_rt *next_rt = rt_lpm(sr, ippacket->ip_dst); 
+              fprintf(stderr, "destination is not me\n");
+	      struct sr_rt *next_rt = rt_lpm(sr, ippacket->ip_dst); 
               if(!next_rt){
                  fprintf(stderr, "something went wrong! could not find interface for echo reply\n");
                  return;
@@ -226,12 +234,13 @@ void handle_ip_packet(struct sr_instance* sr,
             else { /*inbound packet & destination is me*/
               /*struct sr_if* inface = sr_get_interface(sr, interface); first we need to find which interface is the dest.ip */
               /*if(!inface){fprintf(stderr, "somethign went wrong! couldnt find iface for echo reply\n"); return;}*/
-              
+              fprintf(stderr, "destination is me\n");
               if(ippacket->ip_dst == sr_get_interface(sr, "eth1")->ip) { /*cannot happen *bad attempt to get into NAT*/ /*NOT SURE usage correct or not*/
                 fprintf(stderr,"Unsolicited inbound ICMP packet received attempting to send to internal IP. Drop it");
                 /*do we need to sent some icmp unreachable here????*/
                 return;
               }else {/*dest.ip is eth2*/
+		fprintf(stderr, "des ip is eth2\n");
                /*echo request/reply attempting to send in NAT*/
                 struct sr_nat_mapping *mapresult = sr_nat_lookup_external(&(sr->nat), icmp_hdr->icmp_id, nat_mapping_icmp);
                 if (mapresult) { /*we can find the mapping of this ip,port pair (already existed)*/
@@ -304,7 +313,7 @@ int icmp_checksum(sr_icmp_hdr_t* icmp_hdr, uint16_t icmp_len){
   check_hdr->icmp_sum = 0;
   uint16_t checksum = cksum(check_hdr,icmp_len);
   free(check_hdr);
-  if (checksum == icmp_hdr){ return 1;} else { return 0;}
+  if (checksum == icmp_hdr->icmp_sum){ return 1;} else { return 0;}
   
 }
 /*-----------------------------------------------------------------------------
@@ -713,7 +722,7 @@ int send_arp_reply( struct sr_instance* sr,
 
  void nat_handle_outbound_icmp(struct sr_instance* sr, struct sr_nat_mapping* natmap, uint8_t* ip_packet, uint16_t len){
      sr_ip_hdr_t* ip_header = (sr_ip_hdr_t*) ip_packet;
-     sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t *) (ip_packet + sizeof(sr_ip_hdr_t));
+     sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t *) ((uint8_t*) ip_packet + sizeof(sr_ip_hdr_t));
      ip_header->ip_src = natmap->ip_ext;
      icmp_hdr->icmp_id = natmap->aux_ext;
      /* first,ttl-1;  then checksum??*/
@@ -726,17 +735,18 @@ int send_arp_reply( struct sr_instance* sr,
      else{
             ip_header->ip_sum = 0;
             ip_header->ip_sum = cksum(ip_header, sizeof(sr_ip_hdr_t));
+	    fprintf(stderr, "about to send outbound icmp\n");
             send_ip_packet(sr,(uint8_t *) ip_header, len);
         }
-     free(ip_packet);
  } 
                 
  
  void nat_handle_inbound_icmp(struct sr_instance* sr, struct sr_nat_mapping* natmap, uint8_t* ip_packet, uint16_t len){
                     /*if it is request to sth inside nat,we modify the header using mapping and forward it*/
                     /*if it is reply to sth inside nat,we also modify header and forward it*/
+     fprintf(stderr, "nat_handle_inbound_icmp\n");
      sr_ip_hdr_t* ip_header = (sr_ip_hdr_t*) ip_packet;
-     sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t *) (ip_packet + sizeof(sr_ip_hdr_t));
+     sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t *) ((uint8_t*) ip_packet + sizeof(sr_ip_hdr_t));
      ip_header->ip_dst = natmap->ip_int;
      icmp_hdr->icmp_id = natmap->aux_int;
      /* first,ttl-1;  then checksum??*/
@@ -751,7 +761,6 @@ int send_arp_reply( struct sr_instance* sr,
             ip_header->ip_sum = cksum(ip_header, sizeof(sr_ip_hdr_t));
             send_ip_packet(sr, (uint8_t *) ip_header, len);
         }
-     free(ip_packet);
  }
 
 
@@ -759,7 +768,7 @@ void handle_nat_ip (struct sr_instance* sr,
                       struct sr_ip_hdr *ippacket/* unchanged/lent */,
                       unsigned int len,
                       char* interface/* lent */){
-  sr_tcp_hdr_t *tcphdr = (sr_tcp_hdr_t *) (ippacket + sizeof(sr_ip_hdr_t));
+  sr_tcp_hdr_t *tcphdr = (sr_tcp_hdr_t *) ((uint8_t*) ippacket + sizeof(sr_ip_hdr_t));
 
   if(strcmp(interface, "eth1") == 0) { /*outbound*/
     
