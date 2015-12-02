@@ -95,4 +95,10 @@ struct sr_nat_connection *sr_nat_insert_con(struct sr_nat_mapping *mapping, uint
 
 void nat_handle_outbound_icmp(struct sr_instance* sr, struct sr_nat_mapping* natmap, uint8_t* ip_packet, uint16_t len);
 
+void nat_handle_inbound_icmp(struct sr_instance* sr, struct sr_nat_mapping* natmap, uint8_t* ip_packet, uint16_t len);
+
+void nat_handle_inbound_tcp(struct sr_instance* sr, struct sr_nat_mapping* nat_mapping,uint8_t* ip_packet,uint16_t len);
+
+void nat_handle_outbound_tcp(struct sr_instance* sr, struct sr_nat_mapping* nat_mapping, uint8_t* ip_packet, uint16_t len);
+
 #endif
