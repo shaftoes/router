@@ -25,9 +25,15 @@
 
 struct sr_rt *rt_lpm(struct sr_instance* sr, uint32_t ip){
    struct sr_rt *present;
-   struct sr_rt *longest_match = NULL;
+   struct sr_rt *longest_match = NULL, *curr, *defaultr = NULL;
    uint32_t mask;
    uint32_t largest_mask = 0;
+   
+   for (curr = sr->routing_table; curr; curr = curr->next) {
+      if ((curr->dest).s_addr == 0){
+        defaultr = curr;
+      }
+   }
 
    for (present = sr->routing_table; present; present = present->next){
        mask = (present->mask).s_addr;
@@ -38,7 +44,13 @@ struct sr_rt *rt_lpm(struct sr_instance* sr, uint32_t ip){
            }
        }
    }
+   
+   if (longest_match){
    return longest_match;
+   }
+   else 
+       return defaultr;
+   
 }
 
 
